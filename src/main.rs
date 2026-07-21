@@ -1,3 +1,6 @@
+use borsh::{BorshDeserialize, BorshSerialize};
+use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
+use ethnum::U256;
 use std::collections::HashMap;
 
 fn main() {}
@@ -6,14 +9,14 @@ fn main() {}
 
 //User accounts
 struct User {
-    balance: u64,
+    balance: U256,
     nonce: u64,
 }
 
 impl User {
     fn new() -> Self {
         Self {
-            balance: 0,
+            balance: U256::new(0),
             nonce: 0,
         }
     }
@@ -40,42 +43,82 @@ impl State {
     }
 
     fn apply_transaction(&mut self, transaction: &Transaction) -> Result<(), StateError> {
-        let sender_bal = self.global_state.get(&transaction.sender_address);           //FIXING THIS NEXT TIME, NEED TO WORK THROUGH VALIDATION OF SENDER INFO/BAL ETC. 
-            if let Some(address) = sender_bal {
-                if address.balance >= transaction.amount {
-                }
-                else {
-                    println!("Insufficent balance")
-                }
-            } 
+        // phase 1: validate — no mutations
+        let sender = self
+            .global_state
+            .get(&transaction.sender_address)
+            .ok_or(StateError::UnknownSender)?;
+        if sender.balance < transaction.amount {
+            return Err(StateError::InsufficientBalance);
+        }
+        if sender.nonce != transaction.nonce {
+            return Err(StateError::InvalidNonce);
+        }
+
+        // check receiver overflow by *reading* current balance (0 if absent)
+        let receiver_balance = self
+            .global_state
+            .get(&transaction.receiver_address)
+            .map(|u| u.balance)
+            .unwrap_or(U256::new(0));
+        receiver_balance
+            .checked_add(transaction.amount)
+            .ok_or(StateError::BalanceOverflow)?;
+
+        // phase 2: mutate — now everything's validated
+        let sender = self
+            .global_state
+            .get_mut(&transaction.sender_address)
+            .unwrap();
+        sender.balance -= transaction.amount;
+        sender.nonce += 1;
 
         let receiver = self
             .global_state
-            .entry(transaction.receiver_address)
+            .entry(transaction.receiver_address.clone())
             .or_insert_with(User::new);
         receiver.balance += transaction.amount;
+        Ok(())
     }
 }
-
-
-    if let Some(number) = maybe_number {
-        println!("The number is: {}", number); // Prints: The number is: 42
-    } else {
-        println!("There was no number found.");
-    }
-
-
-
-
-
-//So — add_user isn't a public API. Nobody calls it from main. It's an internal step inside apply_transaction, on the receiver path.
 
 //Transaction requests
 struct Transaction {
     receiver_address: String,
     sender_address: String,
     signer: Vec<u8>,
-    amount: u64,
+    nonce: u64,
+    amount: U256,
+}
+
+impl Transaction {
+    fn verify_signature(&self) -> Result<(), StateError> {
+        //Serialization of transaction info (without signer)
+        //serialize transaction fields
+        //Verify with signature, fields and public key?
+
+        let fields = SignedFields {
+            sender_address: self.sender_address.clone(),
+            receiver_address: self.receiver_address.clone(),
+            amount: self.amount.to_be_bytes(),
+            nonce: self.nonce,
+        };
+        let message = borsh::to_vec(&fields)?;
+
+        let public_key = &self.sender_address;
+        let signature = &self.signer;
+
+        Ok(())
+    }
+}
+
+//Fields for sigature vefication
+#[derive(BorshSerialize)]
+struct SignedFields {
+    sender_address: String,
+    receiver_address: String,
+    amount: [u8; 32],
+    nonce: u64,
 }
 
 //A block of transaction requests
@@ -95,4 +138,8 @@ struct Blockchain {
 
 enum StateError {
     AccountExists,
+    UnknownSender,
+    InsufficientBalance,
+    InvalidNonce,
+    BalanceOverflow,
 }
