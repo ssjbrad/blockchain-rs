@@ -7,3 +7,4 @@ edition = "2024"
 ed25519-dalek = "3.0.0"
 ethnum = "1.5.3"
 borsh = { version = "1.8.0", features = ["derive"] }
+hex = "0.4.3"

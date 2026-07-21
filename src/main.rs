@@ -1,6 +1,8 @@
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshSerialize;
+use ed25519_dalek::SignatureError;
 use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
 use ethnum::U256;
+use hex::FromHexError;
 use std::collections::HashMap;
 
 fn main() {}
@@ -95,7 +97,7 @@ impl Transaction {
     fn verify_signature(&self) -> Result<(), StateError> {
         //Serialization of transaction info (without signer)
         //serialize transaction fields
-        //Verify with signature, fields and public key?
+        //Verify with signature, fields and public key
 
         let fields = SignedFields {
             sender_address: self.sender_address.clone(),
@@ -103,11 +105,20 @@ impl Transaction {
             amount: self.amount.to_be_bytes(),
             nonce: self.nonce,
         };
+        //serialized fields
         let message = borsh::to_vec(&fields)?;
 
-        let public_key = &self.sender_address;
-        let signature = &self.signer;
+        //signature conversion
+        let signature = Signature::try_from(&self.signer[..])?;
 
+        //converting our String
+        let decoded = hex::decode(&self.sender_address)?;
+        let key_array: [u8; 32] = decoded.try_into().map_err(|_| StateError::BadAddress)?;
+        let verifying_key = VerifyingKey::from_bytes(&key_array)?;
+
+        verifying_key
+            .verify_strict(&message, &signature)
+            .map_err(|_| StateError::BadSignature)?;
         Ok(())
     }
 }
@@ -142,4 +153,26 @@ enum StateError {
     InsufficientBalance,
     InvalidNonce,
     BalanceOverflow,
+    BadSignature,
+    SerializationFailed,
+    BadAddress,
+    DecodeError,
+}
+
+impl From<SignatureError> for StateError {
+    fn from(err: SignatureError) -> Self {
+        StateError::BadSignature
+    }
+}
+
+impl From<std::io::Error> for StateError {
+    fn from(err: std::io::Error) -> Self {
+        StateError::SerializationFailed
+    }
+}
+
+impl From<FromHexError> for StateError {
+    fn from(err: FromHexError) -> Self {
+        StateError::DecodeError
+    }
 }
