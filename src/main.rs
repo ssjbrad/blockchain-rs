@@ -1,8 +1,11 @@
 use borsh::BorshSerialize;
 use ed25519_dalek::SignatureError;
+use ed25519_dalek::Signer;
 use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
 use ethnum::U256;
 use hex::FromHexError;
+use rand::rand_core::UnwrapErr;
+use rand::rngs::SysRng;
 use std::collections::HashMap;
 
 fn main() {}
@@ -97,7 +100,7 @@ impl Transaction {
     fn verify_signature(&self) -> Result<(), StateError> {
         //Serialization of transaction info (without signer)
         //serialize transaction fields
-        //Verify with signature, fields and public key
+        //Verify with signature, fields and public key?
 
         let fields = SignedFields {
             sender_address: self.sender_address.clone(),
@@ -108,10 +111,9 @@ impl Transaction {
         //serialized fields
         let message = borsh::to_vec(&fields)?;
 
-        //signature conversion
+        //signature
         let signature = Signature::try_from(&self.signer[..])?;
 
-        //converting our String
         let decoded = hex::decode(&self.sender_address)?;
         let key_array: [u8; 32] = decoded.try_into().map_err(|_| StateError::BadAddress)?;
         let verifying_key = VerifyingKey::from_bytes(&key_array)?;
@@ -119,6 +121,26 @@ impl Transaction {
         verifying_key
             .verify_strict(&message, &signature)
             .map_err(|_| StateError::BadSignature)?;
+        Ok(())
+    }
+
+    fn sender_sign(&mut self, wallet: &Wallet) -> Result<(), StateError> {
+        let fields = SignedFields {
+            sender_address: self.sender_address.clone(),
+            receiver_address: self.receiver_address.clone(),
+            amount: self.amount.to_be_bytes(),
+            nonce: self.nonce,
+        };
+        let secret_key_vec = hex::decode(&wallet.private_key)?;
+        let secret_key_array: [u8; 32] = secret_key_vec
+            .try_into()
+            .map_err(|_| StateError::InvalidSecret)?;
+
+        let signing_key: SigningKey = SigningKey::from_bytes(&secret_key_array);
+
+        let message = borsh::to_vec(&fields)?;
+        let signature = signing_key.sign(&message);
+        self.signer = signature.to_bytes().to_vec();
         Ok(())
     }
 }
@@ -145,6 +167,23 @@ struct Blockchain {
     blocks: Vec<Block>,
 }
 
+//Wallet Struct
+
+struct Wallet {
+    private_key: String,
+}
+
+impl Wallet {
+    fn new() -> Self {
+        let mut csprng = UnwrapErr(SysRng);
+        let signing_key = SigningKey::generate(&mut csprng);
+        let private_key_bytes = signing_key.to_bytes(); // [u8; 32]
+        let private_key = hex::encode(private_key_bytes);
+
+        Wallet { private_key }
+    }
+}
+
 //Error Enum
 
 enum StateError {
@@ -157,6 +196,7 @@ enum StateError {
     SerializationFailed,
     BadAddress,
     DecodeError,
+    InvalidSecret,
 }
 
 impl From<SignatureError> for StateError {

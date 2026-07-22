@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-ed25519-dalek = "3.0.0"
 ethnum = "1.5.3"
 borsh = { version = "1.8.0", features = ["derive"] }
 hex = "0.4.3"
+ed25519-dalek = { version = "3.0.0", default-features = false, features = ["rand_core"] }
+getrandom = "0.2"
+rand = "0.10.2"
