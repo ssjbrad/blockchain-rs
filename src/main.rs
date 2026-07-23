@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 fn main() {}
 
-//Basic main data structures
+//Key data structures
 
 //User accounts
 struct User {
@@ -171,6 +171,7 @@ struct Blockchain {
 
 struct Wallet {
     private_key: String,
+    public_key: String,
 }
 
 impl Wallet {
@@ -179,8 +180,13 @@ impl Wallet {
         let signing_key = SigningKey::generate(&mut csprng);
         let private_key_bytes = signing_key.to_bytes(); // [u8; 32]
         let private_key = hex::encode(private_key_bytes);
+        let public_key_interm = signing_key.verifying_key();
+        let public_key = hex::encode(public_key_interm.to_bytes());
 
-        Wallet { private_key }
+        Wallet {
+            private_key,
+            public_key,
+        }
     }
 }
 
